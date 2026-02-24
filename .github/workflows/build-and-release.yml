@@ -1,0 +1,82 @@
+name: Build and Release (LangLayoutBeacon)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Tag for release (example: v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: LangLayoutBeacon
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup -y --no-progress
+
+      - name: Publish app
+        run: |
+          ./make.ps1 -Publish
+
+      - name: Build installer
+        run: |
+          ./make.ps1 -Installer
+
+      - name: Create checksums
+        run: |
+          $files = @(
+            '.\build\publish\LangLayoutBeacon.exe',
+            '.\build\installer\LangLayoutBeacon_setup.exe'
+          )
+          $lines = @()
+          foreach ($f in $files) {
+            if (Test-Path $f) {
+              $h = Get-FileHash -Algorithm SHA256 -Path $f
+              $name = Split-Path $h.Path -Leaf
+              $lines += "{0}  {1}" -f $h.Hash.ToLower(), $name
+            }
+          }
+          $lines | Set-Content .\build\installer\SHA256SUMS.txt -Encoding ascii
+
+      - name: Upload artifact bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: LangLayoutBeacon-${{ env.RELEASE_TAG }}
+          path: |
+            LangLayoutBeacon/build/publish/LangLayoutBeacon.exe
+            LangLayoutBeacon/build/installer/LangLayoutBeacon_setup.exe
+            LangLayoutBeacon/build/installer/SHA256SUMS.txt
+
+      - name: Publish GitHub release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: |
+            LangLayoutBeacon/build/publish/LangLayoutBeacon.exe
+            LangLayoutBeacon/build/installer/LangLayoutBeacon_setup.exe
+            LangLayoutBeacon/build/installer/SHA256SUMS.txt
+          generate_release_notes: true
