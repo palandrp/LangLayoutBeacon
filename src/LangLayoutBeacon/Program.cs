@@ -21,6 +21,7 @@ internal sealed class BeaconAppContext : ApplicationContext
 {
     private readonly Timer _pollTimer;
     private readonly BannerForm _banner;
+    private readonly NotifyIcon _tray;
     private IntPtr _lastLayout;
 
     public BeaconAppContext()
@@ -28,6 +29,17 @@ internal sealed class BeaconAppContext : ApplicationContext
         var cfg = AppSettings.Load();
         _banner = new BannerForm(cfg.BannerDurationMs, cfg.BannerOffsetPx);
         _lastLayout = NativeMethods.GetForegroundKeyboardLayout();
+
+        var menu = new ContextMenuStrip();
+        menu.Items.Add("Exit", null, (_, _) => ExitThread());
+
+        _tray = new NotifyIcon
+        {
+            Icon = SystemIcons.Application,
+            Text = "LangLayoutBeacon",
+            Visible = true,
+            ContextMenuStrip = menu
+        };
 
         _pollTimer = new Timer { Interval = 70 };
         _pollTimer.Tick += (_, _) => PollLayout();
@@ -46,15 +58,21 @@ internal sealed class BeaconAppContext : ApplicationContext
         if (NativeMethods.TryGetCaretScreenPoint(out var p))
         {
             // Some apps report caret as top-left of window (not useful for user).
-            if (NativeMethods.IsLikelyWindowTopLeftAnchor(p) && NativeMethods.TryGetFocusedControlBottomCenter(out var bc))
-                _banner.ShowNear(bc, lang);
-            else
+            if (!NativeMethods.IsLikelyWindowTopLeftAnchor(p))
+            {
                 _banner.ShowNear(p, lang);
+                return;
+            }
+        }
 
+        // Secondary attempt via UI Automation text caret (works in many modern apps).
+        if (NativeMethods.TryGetCaretScreenPointViaUIA(out var uia))
+        {
+            _banner.ShowNear(uia, lang);
             return;
         }
 
-        // Fallback: bottom-center of focused text control/window (closer to field of view than top corners).
+        // Final fallback: bottom-center of focused text control/window.
         if (NativeMethods.TryGetFocusedControlBottomCenter(out var anchor))
             _banner.ShowNear(anchor, lang);
         else
@@ -68,6 +86,8 @@ internal sealed class BeaconAppContext : ApplicationContext
             _pollTimer.Stop();
             _pollTimer.Dispose();
             _banner.Dispose();
+            _tray.Visible = false;
+            _tray.Dispose();
         }
 
         base.Dispose(disposing);
@@ -318,6 +338,43 @@ internal static class NativeMethods
         var dx = Math.Abs(p.X - r.Left);
         var dy = Math.Abs(p.Y - r.Top);
         return dx < 24 && dy < 24;
+    }
+
+    public static bool TryGetCaretScreenPointViaUIA(out Point point)
+    {
+        point = default;
+
+        try
+        {
+            // Late-bound COM to avoid explicit UIAutomation assembly dependency.
+            var t = Type.GetTypeFromProgID("UIAutomationClient.CUIAutomation8")
+                    ?? Type.GetTypeFromProgID("UIAutomationClient.CUIAutomation");
+            if (t is null) return false;
+
+            dynamic automation = Activator.CreateInstance(t)!;
+            dynamic focused = automation.GetFocusedElement();
+            if (focused is null) return false;
+
+            const int UIA_TextPattern2Id = 10024;
+            dynamic pattern = focused.GetCurrentPattern(UIA_TextPattern2Id);
+            if (pattern is null) return false;
+
+            bool isActive;
+            dynamic range = pattern.GetCaretRange(out isActive);
+            if (range is null) return false;
+
+            var rects = (double[])range.GetBoundingRectangles();
+            if (rects is null || rects.Length < 4) return false;
+
+            var x = (int)Math.Round(rects[0]);
+            var y = (int)Math.Round(rects[1] + rects[3]);
+            point = new Point(x, y);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public static string GetLayoutShortName(IntPtr hkl)

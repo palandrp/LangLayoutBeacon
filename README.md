@@ -11,7 +11,14 @@ A tiny Windows utility: show a small translucent language banner near the **text
 - Polls active window keyboard layout every ~70 ms.
 - On change, resolves current locale and shows 2-letter code (e.g. EN, RU).
 - Banner auto-hides in configurable range 300-700 ms (default 520 ms).
-- If caret position can't be read, falls back to centered popup.
+- Caret positioning strategy:
+  1) native caret API,
+  2) UI Automation caret fallback,
+  3) bottom-center of focused input/window fallback.
+
+## Tray icon
+- App shows a tray icon while running.
+- Right-click tray icon -> **Exit** to stop utility.
 
 ## Settings
 File: `src/LangLayoutBeacon/appsettings.json` (copied next to exe on publish)
