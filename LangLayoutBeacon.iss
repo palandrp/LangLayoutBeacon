@@ -1,5 +1,7 @@
 #define MyAppName "LangLayoutBeacon"
-#define MyAppVersion "1.0.0"
+#ifndef MyAppVersion
+  #define MyAppVersion "1.1.0"
+#endif
 #define MyAppPublisher "Pavel / Newton"
 #define MyAppExeName "LangLayoutBeacon.exe"
 

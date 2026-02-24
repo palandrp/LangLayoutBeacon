@@ -6,7 +6,8 @@ param(
   [switch]$All,
   [ValidateSet('fd-single','fd-multi','self-contained')]
   [string]$Mode = 'fd-single',
-  [string]$Configuration = 'Release'
+  [string]$Configuration = 'Release',
+  [string]$Version = '1.1.0'
 )
 
 Set-StrictMode -Version Latest
@@ -44,11 +45,18 @@ function Get-ModeConfig([string]$mode) {
   }
 }
 
+function To-FileVersion([string]$v) {
+  $parts = $v.Split('.')
+  while ($parts.Count -lt 4) { $parts += '0' }
+  return ($parts[0..3] -join '.')
+}
+
 function Do-Publish([hashtable]$cfg) {
-  Step "Publish mode: $Mode"
+  Step "Publish mode: $Mode (version $Version)"
   New-Item -ItemType Directory -Force -Path $cfg.PublishDir | Out-Null
 
-  $args = @('publish', $Proj, '-c', $Configuration) + $cfg.PublishArgs + @('-o', $cfg.PublishDir)
+  $fileVersion = To-FileVersion $Version
+  $args = @('publish', $Proj, '-c', $Configuration) + $cfg.PublishArgs + @('-o', $cfg.PublishDir, "/p:Version=$Version", "/p:AssemblyVersion=$fileVersion", "/p:FileVersion=$fileVersion")
   & dotnet @args
 }
 
@@ -64,7 +72,7 @@ function Do-Installer([hashtable]$cfg) {
   $exePath = Join-Path $cfg.PublishDir 'LangLayoutBeacon.exe'
   if (-not (Test-Path $exePath)) { throw "Published exe not found at $exePath. Run -Publish first." }
 
-  & $iscc "/DPublishDir=$($cfg.PublishDir)" "/DOutputName=$($cfg.OutputName)" $InstallerScript
+  & $iscc "/DPublishDir=$($cfg.PublishDir)" "/DOutputName=$($cfg.OutputName)" "/DMyAppVersion=$Version" $InstallerScript
 }
 
 function Do-Clean {

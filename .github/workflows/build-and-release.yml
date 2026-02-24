@@ -41,7 +41,7 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Resolve build mode
+      - name: Resolve build mode and app version
         id: mode
         run: |
           $tag = '${{ github.event.inputs.release_tag || github.ref_name }}'
@@ -59,10 +59,18 @@ jobs:
             throw "Tag '$tag' must end with 'fd-single' or 'fd-multi'."
           }
 
+          $version = $null
+          if ($tag -match '^v(\d+\.\d+\.\d+)') {
+            $version = $Matches[1]
+          } else {
+            throw "Tag '$tag' must start with semantic version, e.g. v1.1.2-fd-single"
+          }
+
           $publishDir = "build/publish-$mode"
           $installerName = "LangLayoutBeacon_setup_$mode.exe"
 
           "mode=$mode" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "publish_dir=$publishDir" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "installer_name=$installerName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
@@ -72,11 +80,11 @@ jobs:
 
       - name: Publish app
         run: |
-          ./make.ps1 -Publish -Mode '${{ steps.mode.outputs.mode }}'
+          ./make.ps1 -Publish -Mode '${{ steps.mode.outputs.mode }}' -Version '${{ steps.mode.outputs.version }}'
 
       - name: Build installer
         run: |
-          ./make.ps1 -Installer -Mode '${{ steps.mode.outputs.mode }}'
+          ./make.ps1 -Installer -Mode '${{ steps.mode.outputs.mode }}' -Version '${{ steps.mode.outputs.version }}'
 
       - name: Create checksums
         run: |

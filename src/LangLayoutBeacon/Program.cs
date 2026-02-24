@@ -57,8 +57,8 @@ internal sealed class BeaconAppContext : ApplicationContext
 
         if (NativeMethods.TryGetCaretScreenPoint(out var p))
         {
-            // Some apps report caret as top-left of window (not useful for user).
-            if (!NativeMethods.IsLikelyWindowTopLeftAnchor(p))
+            // Accept native caret point only when it looks valid for focused control/window.
+            if (!NativeMethods.IsLikelyWindowTopLeftAnchor(p) && NativeMethods.IsPointInsideFocusedControl(p, 12))
             {
                 _banner.ShowNear(p, lang);
                 return;
@@ -162,8 +162,9 @@ internal sealed class BannerForm : Form
         _label.Text = lang;
         Width = Math.Max(64, TextRenderer.MeasureText(lang, _label.Font).Width + 18);
 
-        var x = Math.Max(0, Math.Min(Screen.PrimaryScreen!.Bounds.Width - Width, caretPoint.X + _offsetPx));
-        var y = Math.Max(0, Math.Min(Screen.PrimaryScreen!.Bounds.Height - Height, caretPoint.Y - Height - _offsetPx));
+        var sb = Screen.FromPoint(caretPoint).Bounds;
+        var x = Math.Max(sb.Left, Math.Min(sb.Right - Width, caretPoint.X + _offsetPx));
+        var y = Math.Max(sb.Top, Math.Min(sb.Bottom - Height, caretPoint.Y - Height - _offsetPx));
 
         Location = new Point(x, y);
         Show();
@@ -326,6 +327,23 @@ internal static class NativeMethods
         // Anchor near bottom-center of focused text control/window.
         point = new Point((r.Left + r.Right) / 2, r.Bottom - 12);
         return true;
+    }
+
+    public static bool IsPointInsideFocusedControl(Point p, int tolerancePx)
+    {
+        var hwnd = GetForegroundWindow();
+        if (hwnd == IntPtr.Zero) return false;
+
+        var tid = GetWindowThreadProcessId(hwnd, out _);
+        var gti = new GUITHREADINFO { cbSize = Marshal.SizeOf<GUITHREADINFO>() };
+        if (!GetGUIThreadInfo(tid, ref gti)) return false;
+
+        var target = gti.hwndFocus != IntPtr.Zero ? gti.hwndFocus : gti.hwndActive;
+        if (target == IntPtr.Zero) return false;
+        if (!GetWindowRect(target, out var r)) return false;
+
+        return p.X >= r.Left - tolerancePx && p.X <= r.Right + tolerancePx
+            && p.Y >= r.Top - tolerancePx && p.Y <= r.Bottom + tolerancePx;
     }
 
     public static bool IsLikelyWindowTopLeftAnchor(Point p)
