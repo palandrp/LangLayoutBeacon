@@ -44,7 +44,18 @@ internal sealed class BeaconAppContext : ApplicationContext
         var lang = NativeMethods.GetLayoutShortName(current);
 
         if (NativeMethods.TryGetCaretScreenPoint(out var p))
-            _banner.ShowNear(p, lang);
+        {
+            // Some apps report caret as top-left of window (not useful for user).
+            if (NativeMethods.IsLikelyWindowTopLeftAnchor(p) && NativeMethods.TryGetFocusedControlTopRight(out var tr))
+                _banner.ShowNear(tr, lang);
+            else
+                _banner.ShowNear(p, lang);
+
+            return;
+        }
+
+        if (NativeMethods.TryGetFocusedControlTopRight(out var anchor))
+            _banner.ShowNear(anchor, lang);
         else
             _banner.ShowCentered(lang);
     }
@@ -241,6 +252,9 @@ internal static class NativeMethods
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern int LCIDToLocaleName(uint lcid, StringBuilder localeName, int cchLocaleName, uint flags);
 
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
     public static IntPtr GetForegroundKeyboardLayout()
     {
         var hwnd = GetForegroundWindow();
@@ -270,6 +284,39 @@ internal static class NativeMethods
 
         point = new Point(p.X, p.Y);
         return true;
+    }
+
+    public static bool TryGetFocusedControlTopRight(out Point point)
+    {
+        point = default;
+
+        var hwnd = GetForegroundWindow();
+        if (hwnd == IntPtr.Zero) return false;
+
+        var tid = GetWindowThreadProcessId(hwnd, out _);
+        var gti = new GUITHREADINFO { cbSize = Marshal.SizeOf<GUITHREADINFO>() };
+        if (!GetGUIThreadInfo(tid, ref gti)) return false;
+
+        var target = gti.hwndFocus != IntPtr.Zero ? gti.hwndFocus : gti.hwndActive;
+        if (target == IntPtr.Zero) return false;
+
+        if (!GetWindowRect(target, out var r)) return false;
+
+        // Anchor near top-right corner of focused text control/window.
+        point = new Point(r.Right - 12, r.Top + 12);
+        return true;
+    }
+
+    public static bool IsLikelyWindowTopLeftAnchor(Point p)
+    {
+        var hwnd = GetForegroundWindow();
+        if (hwnd == IntPtr.Zero) return false;
+        if (!GetWindowRect(hwnd, out var r)) return false;
+
+        // If reported caret is basically window origin area, it's usually not real caret.
+        var dx = Math.Abs(p.X - r.Left);
+        var dy = Math.Abs(p.Y - r.Top);
+        return dx < 24 && dy < 24;
     }
 
     public static string GetLayoutShortName(IntPtr hkl)
