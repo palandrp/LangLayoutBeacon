@@ -12,9 +12,10 @@ A tiny Windows utility: show a small translucent language banner near the **text
 - On change, resolves current locale and shows 2-letter code (e.g. EN, RU).
 - Banner auto-hides in configurable range 300-700 ms (default 520 ms).
 - Caret positioning strategy:
-  1) native caret API,
-  2) UI Automation caret fallback,
-  3) bottom-center of focused input/window fallback.
+  1) native caret API (`GetGUIThreadInfo`),
+  2) MSAA caret fallback (`OBJID_CARET`),
+  3) UI Automation caret fallback (with range expansion),
+  4) bottom-center of focused input/window fallback.
 
 ## Tray icon
 - App shows a tray icon while running.

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
+using Accessibility;
 using Timer = System.Windows.Forms.Timer;
 
 namespace LangLayoutBeacon;
@@ -71,7 +72,14 @@ internal sealed class BeaconAppContext : ApplicationContext
             }
         }
 
-        // Secondary attempt via UI Automation text caret (works in many modern apps).
+        // Secondary attempt via MSAA caret object (OBJID_CARET).
+        if (NativeMethods.TryGetCaretScreenPointViaMsaa(out var msaa))
+        {
+            _banner.ShowNear(msaa, lang);
+            return;
+        }
+
+        // Tertiary attempt via UI Automation text caret (works in many modern apps).
         if (NativeMethods.TryGetCaretScreenPointViaUIA(out var uia))
         {
             _banner.ShowNear(uia, lang);
@@ -283,6 +291,13 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
+    [DllImport("oleacc.dll")]
+    private static extern int AccessibleObjectFromWindow(
+        IntPtr hwnd,
+        uint dwObjectID,
+        ref Guid riid,
+        [MarshalAs(UnmanagedType.Interface)] out object ppvObject);
+
     public static IntPtr GetForegroundKeyboardLayout()
     {
         var hwnd = GetForegroundWindow();
@@ -290,6 +305,24 @@ internal static class NativeMethods
 
         var tid = GetWindowThreadProcessId(hwnd, out _);
         return GetKeyboardLayout(tid);
+    }
+
+    private static bool TryGetFocusedTargetWindow(out IntPtr target)
+    {
+        target = IntPtr.Zero;
+
+        var hwnd = GetForegroundWindow();
+        if (hwnd == IntPtr.Zero) return false;
+
+        var tid = GetWindowThreadProcessId(hwnd, out _);
+        var gti = new GUITHREADINFO { cbSize = Marshal.SizeOf<GUITHREADINFO>() };
+        if (!GetGUIThreadInfo(tid, ref gti)) return false;
+
+        target = gti.hwndCaret != IntPtr.Zero ? gti.hwndCaret
+            : gti.hwndFocus != IntPtr.Zero ? gti.hwndFocus
+            : gti.hwndActive;
+
+        return target != IntPtr.Zero;
     }
 
     public static bool TryGetCaretScreenPoint(out Point point)
@@ -364,6 +397,33 @@ internal static class NativeMethods
         return dx < 24 && dy < 24;
     }
 
+    public static bool TryGetCaretScreenPointViaMsaa(out Point point)
+    {
+        point = default;
+
+        try
+        {
+            if (!TryGetFocusedTargetWindow(out var target)) return false;
+
+            const uint OBJID_CARET = 0xFFFFFFF8;
+            var iid = new Guid("618736E0-3C3D-11CF-810C-00AA00389B71"); // IAccessible
+
+            var hr = AccessibleObjectFromWindow(target, OBJID_CARET, ref iid, out var accObj);
+            if (hr != 0 || accObj is not IAccessible acc) return false;
+
+            object childId = 0;
+            acc.accLocation(out var left, out var top, out var width, out var height, childId);
+            if (width <= 0 && height <= 0) return false;
+
+            point = new Point(left, top + Math.Max(1, height));
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public static bool TryGetCaretScreenPointViaUIA(out Point point)
     {
         point = default;
@@ -380,6 +440,10 @@ internal static class NativeMethods
             if (focused is null) return false;
 
             const int UIA_TextPattern2Id = 10024;
+            const int UIA_TextUnit_Character = 0;
+            const int UIA_StartEndpoint = 0;
+            const int UIA_EndEndpoint = 1;
+
             dynamic pattern = focused.GetCurrentPattern(UIA_TextPattern2Id);
             if (pattern is null) return false;
 
@@ -387,7 +451,29 @@ internal static class NativeMethods
             dynamic range = pattern.GetCaretRange(out isActive);
             if (range is null) return false;
 
-            var rects = (double[])range.GetBoundingRectangles();
+            double[]? rects = null;
+            try { rects = (double[])range.GetBoundingRectangles(); } catch { }
+
+            // For degenerate caret ranges UIA may return empty. Expand to a character range.
+            if (rects is null || rects.Length < 4)
+            {
+                dynamic probe = range.Clone();
+                try
+                {
+                    probe.ExpandToEnclosingUnit(UIA_TextUnit_Character);
+                    rects = (double[])probe.GetBoundingRectangles();
+                }
+                catch
+                {
+                    try
+                    {
+                        probe.MoveEndpointByUnit(UIA_EndEndpoint, UIA_TextUnit_Character, 1);
+                        rects = (double[])probe.GetBoundingRectangles();
+                    }
+                    catch { }
+                }
+            }
+
             if (rects is null || rects.Length < 4) return false;
 
             var x = (int)Math.Round(rects[0]);
