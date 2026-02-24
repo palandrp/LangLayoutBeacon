@@ -46,15 +46,16 @@ internal sealed class BeaconAppContext : ApplicationContext
         if (NativeMethods.TryGetCaretScreenPoint(out var p))
         {
             // Some apps report caret as top-left of window (not useful for user).
-            if (NativeMethods.IsLikelyWindowTopLeftAnchor(p) && NativeMethods.TryGetFocusedControlTopRight(out var tr))
-                _banner.ShowNear(tr, lang);
+            if (NativeMethods.IsLikelyWindowTopLeftAnchor(p) && NativeMethods.TryGetFocusedControlBottomCenter(out var bc))
+                _banner.ShowNear(bc, lang);
             else
                 _banner.ShowNear(p, lang);
 
             return;
         }
 
-        if (NativeMethods.TryGetFocusedControlTopRight(out var anchor))
+        // Fallback: bottom-center of focused text control/window (closer to field of view than top corners).
+        if (NativeMethods.TryGetFocusedControlBottomCenter(out var anchor))
             _banner.ShowNear(anchor, lang);
         else
             _banner.ShowCentered(lang);
@@ -286,7 +287,7 @@ internal static class NativeMethods
         return true;
     }
 
-    public static bool TryGetFocusedControlTopRight(out Point point)
+    public static bool TryGetFocusedControlBottomCenter(out Point point)
     {
         point = default;
 
@@ -302,8 +303,8 @@ internal static class NativeMethods
 
         if (!GetWindowRect(target, out var r)) return false;
 
-        // Anchor near top-right corner of focused text control/window.
-        point = new Point(r.Right - 12, r.Top + 12);
+        // Anchor near bottom-center of focused text control/window.
+        point = new Point((r.Left + r.Right) / 2, r.Bottom - 12);
         return true;
     }
 
