@@ -64,9 +64,17 @@ GitHub Actions determines mode from tag suffix:
 - `...-fd-single` -> framework-dependent single-file
 - `...-fd-multi` -> framework-dependent multi-file
 
+Tag format:
+- `vMAJOR.MINOR.PATCH-fd-single`
+- `vMAJOR.MINOR.PATCH-fd-multi`
+
 Examples:
-- `v1.0.1-fd-single`
-- `v1.0.1-fd-multi`
+- `v1.1.0-fd-single`
+- `v1.1.1-fd-multi`
+
+Versioning rule:
+- current baseline: `1.1.0`
+- each fix push increments PATCH: `1.1.1`, `1.1.2`, ...
 
 ## Security notes
 - No HTTP/API calls in code.
