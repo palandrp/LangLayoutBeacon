@@ -33,13 +33,19 @@ internal sealed class BeaconAppContext : ApplicationContext
         var menu = new ContextMenuStrip();
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
 
+        var appIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
         _tray = new NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = appIcon,
             Text = "LangLayoutBeacon",
             Visible = true,
             ContextMenuStrip = menu
         };
+
+        _tray.BalloonTipTitle = "LangLayoutBeacon";
+        _tray.BalloonTipText = "Running. Right-click tray icon to exit.";
+        _tray.BalloonTipIcon = ToolTipIcon.Info;
+        _tray.ShowBalloonTip(1200);
 
         _pollTimer = new Timer { Interval = 70 };
         _pollTimer.Tick += (_, _) => PollLayout();
