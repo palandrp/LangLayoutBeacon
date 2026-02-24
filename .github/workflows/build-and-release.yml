@@ -7,9 +7,17 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Tag for release (example: v1.0.0)'
+        description: 'Tag for release (example: v1.0.0-fd-single)'
         required: true
         type: string
+      build_mode:
+        description: 'Build mode'
+        required: true
+        default: 'fd-single'
+        type: choice
+        options:
+          - fd-single
+          - fd-multi
 
 permissions:
   contents: write
@@ -33,23 +41,48 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Resolve build mode
+        id: mode
+        run: |
+          $tag = '${{ github.event.inputs.release_tag || github.ref_name }}'
+
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            $mode = '${{ github.event.inputs.build_mode }}'
+          }
+          elseif ($tag -match 'fd-multi$') {
+            $mode = 'fd-multi'
+          }
+          elseif ($tag -match 'fd-single$') {
+            $mode = 'fd-single'
+          }
+          else {
+            throw "Tag '$tag' must end with 'fd-single' or 'fd-multi'."
+          }
+
+          $publishDir = "build/publish-$mode"
+          $installerName = "LangLayoutBeacon_setup_$mode.exe"
+
+          "mode=$mode" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "publish_dir=$publishDir" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "installer_name=$installerName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
       - name: Install Inno Setup
         run: |
           choco install innosetup -y --no-progress
 
       - name: Publish app
         run: |
-          ./make.ps1 -Publish
+          ./make.ps1 -Publish -Mode '${{ steps.mode.outputs.mode }}'
 
       - name: Build installer
         run: |
-          ./make.ps1 -Installer
+          ./make.ps1 -Installer -Mode '${{ steps.mode.outputs.mode }}'
 
       - name: Create checksums
         run: |
           $files = @(
-            '.\build\publish\LangLayoutBeacon.exe',
-            '.\build\installer\LangLayoutBeacon_setup.exe'
+            '.\${{ steps.mode.outputs.publish_dir }}\LangLayoutBeacon.exe',
+            '.\build\installer\${{ steps.mode.outputs.installer_name }}'
           )
           $lines = @()
           foreach ($f in $files) {
@@ -66,8 +99,8 @@ jobs:
         with:
           name: LangLayoutBeacon-${{ env.RELEASE_TAG }}
           path: |
-            build/publish/LangLayoutBeacon.exe
-            build/installer/LangLayoutBeacon_setup.exe
+            ${{ steps.mode.outputs.publish_dir }}/LangLayoutBeacon.exe
+            build/installer/${{ steps.mode.outputs.installer_name }}
             build/installer/SHA256SUMS.txt
 
       - name: Publish GitHub release assets
@@ -75,7 +108,7 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           files: |
-            build/publish/LangLayoutBeacon.exe
-            build/installer/LangLayoutBeacon_setup.exe
+            ${{ steps.mode.outputs.publish_dir }}/LangLayoutBeacon.exe
+            build/installer/${{ steps.mode.outputs.installer_name }}
             build/installer/SHA256SUMS.txt
           generate_release_notes: true

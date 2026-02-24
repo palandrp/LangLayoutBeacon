@@ -3,6 +3,14 @@
 #define MyAppPublisher "Pavel / Newton"
 #define MyAppExeName "LangLayoutBeacon.exe"
 
+#ifndef PublishDir
+  #define PublishDir "build\\publish-fd-single"
+#endif
+
+#ifndef OutputName
+  #define OutputName "LangLayoutBeacon_setup_fd-single"
+#endif
+
 [Setup]
 AppId={{6C1EF1EA-4A7D-4D40-AB6F-4D9D5D6A2F11}
 AppName={#MyAppName}
@@ -12,7 +20,7 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableDirPage=no
 OutputDir=build\installer
-OutputBaseFilename=LangLayoutBeacon_setup
+OutputBaseFilename={#OutputName}
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64
@@ -22,7 +30,7 @@ PrivilegesRequired=lowest
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-Source: "build\publish\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
+Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
