@@ -23,7 +23,6 @@ jobs:
     defaults:
       run:
         shell: pwsh
-        working-directory: LangLayoutBeacon
 
     steps:
       - name: Checkout
@@ -67,16 +66,16 @@ jobs:
         with:
           name: LangLayoutBeacon-${{ env.RELEASE_TAG }}
           path: |
-            LangLayoutBeacon/build/publish/LangLayoutBeacon.exe
-            LangLayoutBeacon/build/installer/LangLayoutBeacon_setup.exe
-            LangLayoutBeacon/build/installer/SHA256SUMS.txt
+            build/publish/LangLayoutBeacon.exe
+            build/installer/LangLayoutBeacon_setup.exe
+            build/installer/SHA256SUMS.txt
 
       - name: Publish GitHub release assets
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           files: |
-            LangLayoutBeacon/build/publish/LangLayoutBeacon.exe
-            LangLayoutBeacon/build/installer/LangLayoutBeacon_setup.exe
-            LangLayoutBeacon/build/installer/SHA256SUMS.txt
+            build/publish/LangLayoutBeacon.exe
+            build/installer/LangLayoutBeacon_setup.exe
+            build/installer/SHA256SUMS.txt
           generate_release_notes: true
