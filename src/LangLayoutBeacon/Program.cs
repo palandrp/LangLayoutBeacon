@@ -28,7 +28,7 @@ internal sealed class BeaconAppContext : ApplicationContext
     public BeaconAppContext()
     {
         var cfg = AppSettings.Load();
-        _banner = new BannerForm(cfg.BannerDurationMs, cfg.BannerOffsetPx);
+        _banner = new BannerForm(cfg);
         _lastLayout = NativeMethods.GetForegroundKeyboardLayout();
 
         var menu = new ContextMenuStrip();
@@ -48,6 +48,8 @@ internal sealed class BeaconAppContext : ApplicationContext
         _tray.BalloonTipIcon = ToolTipIcon.Info;
         _tray.ShowBalloonTip(1200);
 
+        _banner.SetLanguage(NativeMethods.GetLayoutShortName(_lastLayout));
+
         _pollTimer = new Timer { Interval = 70 };
         _pollTimer.Tick += (_, _) => PollLayout();
         _pollTimer.Start();
@@ -56,41 +58,41 @@ internal sealed class BeaconAppContext : ApplicationContext
     private void PollLayout()
     {
         var current = NativeMethods.GetForegroundKeyboardLayout();
-        if (current == IntPtr.Zero || current == _lastLayout)
+        if (current == IntPtr.Zero)
             return;
 
-        _lastLayout = current;
-        var lang = NativeMethods.GetLayoutShortName(current);
-
-        if (NativeMethods.TryGetCaretScreenPoint(out var p))
+        var layoutChanged = current != _lastLayout;
+        if (layoutChanged)
         {
-            // Accept native caret point only when it looks valid for focused control/window.
-            if (!NativeMethods.IsLikelyWindowTopLeftAnchor(p) && NativeMethods.IsPointInsideFocusedControl(p, 12))
-            {
-                _banner.ShowNear(p, lang);
-                return;
-            }
+            _lastLayout = current;
+            _banner.OnLayoutSwitched(NativeMethods.GetLayoutShortName(current));
         }
 
-        // Secondary attempt via MSAA caret object (OBJID_CARET).
-        if (NativeMethods.TryGetCaretScreenPointViaMsaa(out var msaa))
-        {
-            _banner.ShowNear(msaa, lang);
-            return;
-        }
-
-        // Tertiary attempt via UI Automation text caret (works in many modern apps).
-        if (NativeMethods.TryGetCaretScreenPointViaUIA(out var uia))
-        {
-            _banner.ShowNear(uia, lang);
-            return;
-        }
-
-        // Final fallback: bottom-center of focused text control/window.
-        if (NativeMethods.TryGetFocusedControlBottomCenter(out var anchor))
-            _banner.ShowNear(anchor, lang);
+        if (TryResolveAnchorPoint(out var anchor))
+            _banner.UpdateAnchor(anchor);
         else
-            _banner.ShowCentered(lang);
+            _banner.ShowCenteredIfNeeded();
+    }
+
+    private bool TryResolveAnchorPoint(out Point p)
+    {
+        if (NativeMethods.TryGetCaretScreenPoint(out p))
+        {
+            if (!NativeMethods.IsLikelyWindowTopLeftAnchor(p) && NativeMethods.IsPointInsideFocusedControl(p, 12))
+                return true;
+        }
+
+        if (NativeMethods.TryGetCaretScreenPointViaMsaa(out p))
+            return true;
+
+        if (NativeMethods.TryGetCaretScreenPointViaUIA(out p))
+            return true;
+
+        if (NativeMethods.TryGetFocusedControlBottomCenter(out p))
+            return true;
+
+        p = default;
+        return false;
     }
 
     protected override void Dispose(bool disposing)
@@ -110,38 +112,58 @@ internal sealed class BeaconAppContext : ApplicationContext
 
 internal sealed class BannerForm : Form
 {
-    private readonly Timer _hideTimer;
+    private readonly AppSettings _cfg;
     private readonly Label _label;
-    private readonly int _offsetPx;
+    private readonly Timer _hideTimer;
+    private readonly Timer _animTimer;
 
-    public BannerForm(int bannerDurationMs, int bannerOffsetPx)
+    private Point _anchor;
+    private bool _hasAnchor;
+    private string _lang = "EN";
+    private float _currentScale;
+    private float _baseScale;
+    private float _switchScale;
+    private DateTime _pulseStartedAtUtc;
+    private int _cornerRadius;
+
+    public BannerForm(AppSettings cfg)
     {
+        _cfg = cfg;
+
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
         TopMost = true;
         StartPosition = FormStartPosition.Manual;
         BackColor = Color.Black;
         Opacity = 0.68;
-        Width = 72;
-        Height = 30;
 
         _label = new Label
         {
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleCenter,
             ForeColor = Color.White,
-            Font = new Font("Segoe UI", 10, FontStyle.Bold),
             BackColor = Color.Transparent
         };
         Controls.Add(_label);
 
-        _offsetPx = Math.Clamp(bannerOffsetPx, 0, 40);
-        _hideTimer = new Timer { Interval = Math.Clamp(bannerDurationMs, 300, 700) };
+        _baseScale = Math.Clamp(_cfg.PersistentBannerScale, 0.2f, 1.0f);
+        _switchScale = Math.Max(_baseScale, Math.Clamp(_cfg.SwitchBannerScale, _baseScale, 2.2f));
+        _currentScale = _cfg.PersistentBannerEnabled ? _baseScale : _switchScale;
+
+        _hideTimer = new Timer { Interval = Math.Clamp(_cfg.BannerDurationMs, 300, 1200) };
         _hideTimer.Tick += (_, _) =>
         {
             _hideTimer.Stop();
             Hide();
         };
+
+        _animTimer = new Timer { Interval = 16 };
+        _animTimer.Tick += (_, _) => TickPulseAnimation();
+
+        ApplyScale(_currentScale);
+
+        if (_cfg.PersistentBannerEnabled)
+            Show();
     }
 
     protected override CreateParams CreateParams
@@ -168,35 +190,114 @@ internal sealed class BannerForm : Form
 
         using var pen = new Pen(Color.FromArgb(160, 255, 255, 255), 1f);
         var r = new Rectangle(0, 0, Width - 1, Height - 1);
-        e.Graphics.DrawRoundedRectangle(pen, r, 8);
+        e.Graphics.DrawRoundedRectangle(pen, r, _cornerRadius);
     }
 
-    public void ShowNear(Point caretPoint, string lang)
+    public void SetLanguage(string lang)
     {
-        _label.Text = lang;
-        Width = Math.Max(64, TextRenderer.MeasureText(lang, _label.Font).Width + 18);
+        _lang = string.IsNullOrWhiteSpace(lang) ? "--" : lang;
+        _label.Text = _lang;
+        ApplyScale(_currentScale);
+    }
 
-        var sb = Screen.FromPoint(caretPoint).Bounds;
-        var x = Math.Max(sb.Left, Math.Min(sb.Right - Width, caretPoint.X + _offsetPx));
-        var y = Math.Max(sb.Top, Math.Min(sb.Bottom - Height, caretPoint.Y - Height - _offsetPx));
+    public void OnLayoutSwitched(string lang)
+    {
+        SetLanguage(lang);
+
+        if (_cfg.PersistentBannerEnabled)
+        {
+            _pulseStartedAtUtc = DateTime.UtcNow;
+            if (!_animTimer.Enabled)
+                _animTimer.Start();
+
+            if (!Visible)
+                Show();
+
+            return;
+        }
+
+        // Legacy mode: only temporary switch banner.
+        _currentScale = _switchScale;
+        ApplyScale(_currentScale);
+        PlaceNearAnchorOrCenter();
+        Show();
+        _hideTimer.Stop();
+        _hideTimer.Start();
+    }
+
+    public void UpdateAnchor(Point caretPoint)
+    {
+        _anchor = caretPoint;
+        _hasAnchor = true;
+        PlaceNearAnchorOrCenter();
+
+        if (_cfg.PersistentBannerEnabled && !Visible)
+            Show();
+    }
+
+    public void ShowCenteredIfNeeded()
+    {
+        if (!_cfg.PersistentBannerEnabled)
+            return;
+
+        if (!Visible)
+            Show();
+
+        var wa = Screen.PrimaryScreen?.WorkingArea ?? Screen.FromPoint(Cursor.Position).WorkingArea;
+        Location = new Point(wa.Left + (wa.Width - Width) / 2, wa.Top + (wa.Height - Height) / 2);
+    }
+
+    private void TickPulseAnimation()
+    {
+        var durationMs = Math.Clamp(_cfg.BannerDurationMs, 300, 1200);
+        var elapsedMs = (DateTime.UtcNow - _pulseStartedAtUtc).TotalMilliseconds;
+
+        if (elapsedMs >= durationMs)
+        {
+            _animTimer.Stop();
+            _currentScale = _baseScale;
+            ApplyScale(_currentScale);
+            PlaceNearAnchorOrCenter();
+            return;
+        }
+
+        // Smooth single pulse: base -> switch -> base.
+        var t = (float)(elapsedMs / durationMs); // 0..1
+        var pulse = MathF.Sin(MathF.PI * t);     // 0..1..0
+        _currentScale = _baseScale + (_switchScale - _baseScale) * pulse;
+        ApplyScale(_currentScale);
+        PlaceNearAnchorOrCenter();
+    }
+
+    private void ApplyScale(float scale)
+    {
+        var fontSize = Math.Clamp(_cfg.BaseFontSize * scale, 6f, 28f);
+        _label.Font = new Font("Segoe UI", fontSize, FontStyle.Bold);
+
+        var measured = TextRenderer.MeasureText(_lang, _label.Font);
+        var pad = (int)Math.Round(18 * scale);
+
+        Width = Math.Max(28, measured.Width + pad);
+        Height = Math.Max(14, (int)Math.Round(30 * scale));
+        _cornerRadius = Math.Max(3, (int)Math.Round(8 * scale));
+
+        Invalidate();
+    }
+
+    private void PlaceNearAnchorOrCenter()
+    {
+        if (!_hasAnchor)
+        {
+            ShowCenteredIfNeeded();
+            return;
+        }
+
+        var offset = Math.Clamp(_cfg.BannerOffsetPx, 0, 80);
+        var sb = Screen.FromPoint(_anchor).Bounds;
+        var x = Math.Max(sb.Left, Math.Min(sb.Right - Width, _anchor.X + offset));
+        var y = Math.Max(sb.Top, Math.Min(sb.Bottom - Height, _anchor.Y - Height - offset));
 
         Location = new Point(x, y);
-        Show();
-        _hideTimer.Stop();
-        _hideTimer.Start();
-    }
-
-    public void ShowCentered(string lang)
-    {
-        _label.Text = lang;
-        Width = Math.Max(64, TextRenderer.MeasureText(lang, _label.Font).Width + 18);
-
-        var wa = Screen.PrimaryScreen!.WorkingArea;
-        Location = new Point(wa.Left + (wa.Width - Width) / 2, wa.Top + (wa.Height - Height) / 2);
-
-        Show();
-        _hideTimer.Stop();
-        _hideTimer.Start();
     }
 }
 
@@ -219,6 +320,13 @@ internal sealed class AppSettings
 {
     public int BannerDurationMs { get; init; } = 520;
     public int BannerOffsetPx { get; init; } = 10;
+    public bool PersistentBannerEnabled { get; init; } = true;
+
+    // Scales are relative to base switch-banner size.
+    // Example defaults: persistent 0.5 (area is ~4x smaller), switch 1.0.
+    public float PersistentBannerScale { get; init; } = 0.5f;
+    public float SwitchBannerScale { get; init; } = 1.0f;
+    public float BaseFontSize { get; init; } = 10f;
 
     public static AppSettings Load()
     {
@@ -363,7 +471,6 @@ internal static class NativeMethods
 
         if (!GetWindowRect(target, out var r)) return false;
 
-        // Anchor near bottom-center of focused text control/window.
         point = new Point((r.Left + r.Right) / 2, r.Bottom - 12);
         return true;
     }
@@ -391,7 +498,6 @@ internal static class NativeMethods
         if (hwnd == IntPtr.Zero) return false;
         if (!GetWindowRect(hwnd, out var r)) return false;
 
-        // If reported caret is basically window origin area, it's usually not real caret.
         var dx = Math.Abs(p.X - r.Left);
         var dy = Math.Abs(p.Y - r.Top);
         return dx < 24 && dy < 24;
@@ -406,7 +512,7 @@ internal static class NativeMethods
             if (!TryGetFocusedTargetWindow(out var target)) return false;
 
             const uint OBJID_CARET = 0xFFFFFFF8;
-            var iid = new Guid("618736E0-3C3D-11CF-810C-00AA00389B71"); // IAccessible
+            var iid = new Guid("618736E0-3C3D-11CF-810C-00AA00389B71");
 
             var hr = AccessibleObjectFromWindow(target, OBJID_CARET, ref iid, out var accObj);
             if (hr != 0 || accObj is not IAccessible acc) return false;
@@ -430,7 +536,6 @@ internal static class NativeMethods
 
         try
         {
-            // Late-bound COM to avoid explicit UIAutomation assembly dependency.
             var t = Type.GetTypeFromProgID("UIAutomationClient.CUIAutomation8")
                     ?? Type.GetTypeFromProgID("UIAutomationClient.CUIAutomation");
             if (t is null) return false;
@@ -441,7 +546,6 @@ internal static class NativeMethods
 
             const int UIA_TextPattern2Id = 10024;
             const int UIA_TextUnit_Character = 0;
-            const int UIA_StartEndpoint = 0;
             const int UIA_EndEndpoint = 1;
 
             dynamic pattern = focused.GetCurrentPattern(UIA_TextPattern2Id);
@@ -454,7 +558,6 @@ internal static class NativeMethods
             double[]? rects = null;
             try { rects = (double[])range.GetBoundingRectangles(); } catch { }
 
-            // For degenerate caret ranges UIA may return empty. Expand to a character range.
             if (rects is null || rects.Length < 4)
             {
                 dynamic probe = range.Clone();
@@ -493,7 +596,7 @@ internal static class NativeMethods
         var sb = new StringBuilder(85);
         if (LCIDToLocaleName(lcid, sb, sb.Capacity, 0) > 0)
         {
-            var name = sb.ToString(); // e.g. en-US, ru-RU
+            var name = sb.ToString();
             return name.Length >= 2 ? name[..2].ToUpperInvariant() : name.ToUpperInvariant();
         }
 

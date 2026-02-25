@@ -9,8 +9,9 @@ A tiny Windows utility: show a small translucent language banner near the **text
 
 ## Runtime behavior
 - Polls active window keyboard layout every ~70 ms.
-- On change, resolves current locale and shows 2-letter code (e.g. EN, RU).
-- Banner auto-hides in configurable range 300-700 ms (default 520 ms).
+- Tracks caret anchor continuously and keeps a **persistent mini-banner** near caret (enabled by default).
+- On layout switch, banner language updates and mini-banner smoothly scales up to switch-banner size, then back down.
+- In legacy mode (`persistentBannerEnabled=false`), banner appears only on switch and auto-hides.
 - Caret positioning strategy:
   1) native caret API (`GetGUIThreadInfo`),
   2) MSAA caret fallback (`OBJID_CARET`),
@@ -27,12 +28,20 @@ File: `src/LangLayoutBeacon/appsettings.json` (copied next to exe on publish)
 ```json
 {
   "bannerDurationMs": 520,
-  "bannerOffsetPx": 10
+  "bannerOffsetPx": 10,
+  "persistentBannerEnabled": true,
+  "persistentBannerScale": 0.5,
+  "switchBannerScale": 1.0,
+  "baseFontSize": 10
 }
 ```
 
-- `bannerDurationMs`: clamp 300..700 ms
-- `bannerOffsetPx`: offset near text caret (0..40 px)
+- `bannerDurationMs`: pulse/show duration clamp 300..1200 ms
+- `bannerOffsetPx`: offset near text caret (0..80 px)
+- `persistentBannerEnabled`: always-on mini-banner mode (default: `true`)
+- `persistentBannerScale`: mini-banner scale (default `0.5`, i.e. ~4x smaller area than switch banner)
+- `switchBannerScale`: switch-banner scale (default `1.0`)
+- `baseFontSize`: base font size before scale multipliers
 
 ## Build (Windows 11 x64)
 Prerequisites:
