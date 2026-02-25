@@ -79,12 +79,13 @@ Tag format:
 - `vMAJOR.MINOR.PATCH-fd-multi`
 
 Examples:
-- `v1.1.0-fd-single`
-- `v1.1.1-fd-multi`
+- `v1.3.0-fd-multi`
+- `v1.3.1-fd-multi`
 
 Versioning rule:
-- current baseline: `1.1.0`
-- each fix push increments PATCH: `1.1.1`, `1.1.2`, ...
+- current baseline: `1.3.0`
+- patch-only updates increment PATCH: `1.3.1`, `1.3.2`, ...
+- feature upgrades increment MINOR: `1.4.0`, `1.5.0`, ...
 
 ## Security notes
 - No HTTP/API calls in code.
