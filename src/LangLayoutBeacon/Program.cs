@@ -88,7 +88,7 @@ internal sealed class BeaconAppContext : ApplicationContext
         if (NativeMethods.TryGetCaretScreenPointViaUIA(out p))
             return true;
 
-        if (NativeMethods.TryGetMouseAnchor(out p))
+        if (NativeMethods.TryGetMouseAnchor(_banner.MouseFallbackOffsetX, _banner.MouseFallbackOffsetY, out p))
             return true;
 
         p = default;
@@ -113,6 +113,8 @@ internal sealed class BeaconAppContext : ApplicationContext
 internal sealed class BannerForm : Form
 {
     private readonly AppSettings _cfg;
+    public int MouseFallbackOffsetX => _cfg.MouseFallbackOffsetX;
+    public int MouseFallbackOffsetY => _cfg.MouseFallbackOffsetY;
     private readonly Label _label;
     private readonly Timer _hideTimer;
     private readonly Timer _animTimer;
@@ -327,6 +329,8 @@ internal sealed class AppSettings
     public float PersistentBannerScale { get; init; } = 0.5f;
     public float SwitchBannerScale { get; init; } = 1.0f;
     public float BaseFontSize { get; init; } = 10f;
+    public int MouseFallbackOffsetX { get; init; } = 14;
+    public int MouseFallbackOffsetY { get; init; } = 16;
 
     public static AppSettings Load()
     {
@@ -475,10 +479,10 @@ internal static class NativeMethods
         return true;
     }
 
-    public static bool TryGetMouseAnchor(out Point point)
+    public static bool TryGetMouseAnchor(int offsetX, int offsetY, out Point point)
     {
         var p = Cursor.Position;
-        point = new Point(p.X + 14, p.Y + 16);
+        point = new Point(p.X + Math.Clamp(offsetX, 0, 120), p.Y + Math.Clamp(offsetY, 0, 120));
         return true;
     }
 

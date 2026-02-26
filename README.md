@@ -16,7 +16,7 @@ A tiny Windows utility: show a small translucent language banner near the **text
   1) native caret API (`GetGUIThreadInfo`),
   2) MSAA caret fallback (`OBJID_CARET`),
   3) UI Automation caret fallback (with range expansion),
-  4) mouse-cursor fallback (slightly down-right from cursor position).
+  4) mouse-cursor fallback (offset configurable via settings).
 
 ## Tray icon
 - App shows a tray icon while running.
@@ -32,7 +32,9 @@ File: `src/LangLayoutBeacon/appsettings.json` (copied next to exe on publish)
   "persistentBannerEnabled": true,
   "persistentBannerScale": 0.5,
   "switchBannerScale": 1.0,
-  "baseFontSize": 10
+  "baseFontSize": 10,
+  "mouseFallbackOffsetX": 14,
+  "mouseFallbackOffsetY": 16
 }
 ```
 
@@ -42,6 +44,8 @@ File: `src/LangLayoutBeacon/appsettings.json` (copied next to exe on publish)
 - `persistentBannerScale`: mini-banner scale (default `0.5`, i.e. ~4x smaller area than switch banner)
 - `switchBannerScale`: switch-banner scale (default `1.0`)
 - `baseFontSize`: base font size before scale multipliers
+- `mouseFallbackOffsetX`: mouse fallback X offset in px (clamp 0..120)
+- `mouseFallbackOffsetY`: mouse fallback Y offset in px (clamp 0..120)
 
 ## Build (Windows 11 x64)
 Prerequisites:
