@@ -88,7 +88,7 @@ internal sealed class BeaconAppContext : ApplicationContext
         if (NativeMethods.TryGetCaretScreenPointViaUIA(out p))
             return true;
 
-        if (NativeMethods.TryGetFocusedControlBottomCenter(out p))
+        if (NativeMethods.TryGetMouseAnchor(out p))
             return true;
 
         p = default;
@@ -472,6 +472,13 @@ internal static class NativeMethods
         if (!GetWindowRect(target, out var r)) return false;
 
         point = new Point((r.Left + r.Right) / 2, r.Bottom - 12);
+        return true;
+    }
+
+    public static bool TryGetMouseAnchor(out Point point)
+    {
+        var p = Cursor.Position;
+        point = new Point(p.X + 14, p.Y + 16);
         return true;
     }
 

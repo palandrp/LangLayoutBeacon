@@ -16,7 +16,7 @@ A tiny Windows utility: show a small translucent language banner near the **text
   1) native caret API (`GetGUIThreadInfo`),
   2) MSAA caret fallback (`OBJID_CARET`),
   3) UI Automation caret fallback (with range expansion),
-  4) bottom-center of focused input/window fallback.
+  4) mouse-cursor fallback (slightly down-right from cursor position).
 
 ## Tray icon
 - App shows a tray icon while running.
