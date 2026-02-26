@@ -83,10 +83,16 @@ internal sealed class BeaconAppContext : ApplicationContext
         }
 
         if (NativeMethods.TryGetCaretScreenPointViaMsaa(out p))
-            return true;
+        {
+            if (!NativeMethods.IsLikelyWindowTopLeftAnchor(p))
+                return true;
+        }
 
         if (NativeMethods.TryGetCaretScreenPointViaUIA(out p))
-            return true;
+        {
+            if (!NativeMethods.IsLikelyWindowTopLeftAnchor(p))
+                return true;
+        }
 
         if (NativeMethods.TryGetMouseAnchor(_banner.MouseFallbackOffsetX, _banner.MouseFallbackOffsetY, out p))
             return true;
