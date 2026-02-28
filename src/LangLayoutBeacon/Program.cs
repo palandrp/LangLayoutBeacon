@@ -78,22 +78,23 @@ internal sealed class BeaconAppContext : ApplicationContext
     {
         if (NativeMethods.TryGetCaretScreenPoint(out p))
         {
-            if (!NativeMethods.IsLikelyWindowTopLeftAnchor(p) && NativeMethods.IsPointInsideFocusedControl(p, 12))
+            if (NativeMethods.IsValidAnchorForForegroundWindow(p) && NativeMethods.IsPointInsideFocusedControl(p, 12))
                 return true;
         }
 
         if (NativeMethods.TryGetCaretScreenPointViaMsaa(out p))
         {
-            if (!NativeMethods.IsLikelyWindowTopLeftAnchor(p))
+            if (NativeMethods.IsValidAnchorForForegroundWindow(p) && NativeMethods.IsPointInsideForegroundWindow(p, 24))
                 return true;
         }
 
         if (NativeMethods.TryGetCaretScreenPointViaUIA(out p))
         {
-            if (!NativeMethods.IsLikelyWindowTopLeftAnchor(p))
+            if (NativeMethods.IsValidAnchorForForegroundWindow(p) && NativeMethods.IsPointInsideForegroundWindow(p, 24))
                 return true;
         }
 
+        // Hard fallback: always follow current mouse position (with offset).
         if (NativeMethods.TryGetMouseAnchor(_banner.MouseFallbackOffsetX, _banner.MouseFallbackOffsetY, out p))
             return true;
 
@@ -518,6 +519,28 @@ internal static class NativeMethods
         var dx = Math.Abs(p.X - r.Left);
         var dy = Math.Abs(p.Y - r.Top);
         return dx < 24 && dy < 24;
+    }
+
+    public static bool IsPointInsideForegroundWindow(Point p, int tolerancePx)
+    {
+        var hwnd = GetForegroundWindow();
+        if (hwnd == IntPtr.Zero) return false;
+        if (!GetWindowRect(hwnd, out var r)) return false;
+
+        return p.X >= r.Left - tolerancePx && p.X <= r.Right + tolerancePx
+            && p.Y >= r.Top - tolerancePx && p.Y <= r.Bottom + tolerancePx;
+    }
+
+    public static bool IsValidAnchorForForegroundWindow(Point p)
+    {
+        if (p.X <= 0 && p.Y <= 0)
+            return false;
+
+        if (IsLikelyWindowTopLeftAnchor(p))
+            return false;
+
+        // Reject stale caret points from previously active windows.
+        return IsPointInsideForegroundWindow(p, 48);
     }
 
     public static bool TryGetCaretScreenPointViaMsaa(out Point point)
